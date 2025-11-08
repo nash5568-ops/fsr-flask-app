@@ -1,25 +1,31 @@
 from flask import Flask, render_template, jsonify
-import serial
 import time
 import threading
 import os
 
+# Only import serial when running locally
+try:
+    import serial
+except ImportError:
+    serial = None
+
 app = Flask(__name__)
 
 # ---- Arduino Setup ----
-port = 'COM4'    # 🔹 Change this if your Arduino uses another port
+port = 'COM4'    # Change this if your Arduino uses another port
 baud = 9600
 
-# Try to connect safely
-try:
-    ser = serial.Serial(port, baud, timeout=1)
-    time.sleep(2)
-    print(f"✅ Connected to {port}")
-except Exception as e:
-    ser = None
-    print(f"⚠️ Could not open serial port {port}: {e}")
-
+ser = None
 fsr_data = []  # store latest readings
+
+# Only try to connect if running locally and pyserial is available
+if serial and os.environ.get("RENDER") != "true":
+    try:
+        ser = serial.Serial(port, baud, timeout=1)
+        time.sleep(2)
+        print(f"✅ Connected to {port}")
+    except Exception as e:
+        print(f"⚠️ Could not open serial port {port}: {e}")
 
 
 # ---- Background thread to read from Arduino ----
@@ -41,10 +47,10 @@ def read_serial():
                     fsr_data = fsr_data[-200:]  # keep last 200 points
         except Exception as e:
             print(f"Serial read error: {e}")
-        time.sleep(0.05)  # slight delay to prevent CPU overload
+        time.sleep(0.05)  # small delay
 
 
-# Start the thread safely
+# Start background serial thread (only locally)
 if ser:
     thread = threading.Thread(target=read_serial)
     thread.daemon = True
@@ -67,11 +73,7 @@ def reset_data():
     print("🔄 Data reset")
     return "Data reset!", 200
 
+
+# ---- Run App ----
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
-
-
-#if __name__ == '__main__':
-    # Run WITHOUT auto-reload (prevents COM port locking issues)
- #   app.run(host='10.200.193.152', port=5000, debug=False)
-
