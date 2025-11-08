@@ -2,6 +2,7 @@ from flask import Flask, render_template, jsonify
 import serial
 import time
 import threading
+import os
 
 app = Flask(__name__)
 
@@ -66,7 +67,11 @@ def reset_data():
     print("🔄 Data reset")
     return "Data reset!", 200
 
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 
-if __name__ == '__main__':
+
+#if __name__ == '__main__':
     # Run WITHOUT auto-reload (prevents COM port locking issues)
-    app.run(host='10.200.193.152', port=5000, debug=False)
+ #   app.run(host='10.200.193.152', port=5000, debug=False)
+
