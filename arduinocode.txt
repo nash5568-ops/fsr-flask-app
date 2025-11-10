@@ -1,1 +1,31 @@
+// ----------------------------------------------------
+// 4-FSR Posture Tracker (Seat + 3 Back Sensors)
+// ----------------------------------------------------
+
+const int fsrPins[4] = {A0, A1, A2, A3};
+int fsrValues[4];
+
+void setup() {
+  Serial.begin(9600);
+  for (int i = 0; i < 4; i++) pinMode(fsrPins[i], INPUT);
+  Serial.println("Posture Tracker Ready...");
+}
+
+void loop() {
+  // Read all sensors
+  for (int i = 0; i < 4; i++) {
+    fsrValues[i] = analogRead(fsrPins[i]);
+  }
+
+  // Send all 4 as comma-separated string
+  Serial.print(fsrValues[0]);
+  Serial.print(",");
+  Serial.print(fsrValues[1]);
+  Serial.print(",");
+  Serial.print(fsrValues[2]);
+  Serial.print(",");
+  Serial.println(fsrValues[3]);
+
+  delay(200);
+}
 
