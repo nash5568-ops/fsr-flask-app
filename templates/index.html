@@ -1,88 +1,84 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Live FSR Sensor Data</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #f8f9fa;
-      color: #333;
-      text-align: center;
-      padding: 40px;
-    }
-    h1 {
-      margin-bottom: 20px;
-    }
-    canvas {
-      width: 90% !important;
-      max-width: 900px;
-      height: 400px !important;
-      margin: auto;
-    }
-    button {
-      margin-top: 20px;
-      padding: 10px 20px;
-      font-size: 16px;
-      border: none;
-      border-radius: 8px;
-      background-color: #007bff;
-      color: white;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: #0056b3;
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Posture Pressure Visualization</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    text-align: center;
+    background: #f3f4f7;
+    padding: 40px;
+  }
+  h1 { margin-bottom: 10px; }
+  #status {
+    font-size: 1.2em;
+    margin-bottom: 20px;
+    font-weight: bold;
+  }
+  .bar-container {
+    width: 80%;
+    height: 40px;
+    background: #ddd;
+    border-radius: 10px;
+    margin: 15px auto;
+    position: relative;
+    overflow: hidden;
+  }
+  .bar {
+    height: 100%;
+    background: #007bff;
+    width: 0%;
+    transition: width 0.3s;
+  }
+  .label {
+    position: absolute;
+    width: 100%;
+    top: 8px;
+    font-weight: bold;
+    color: #333;
+  }
+</style>
 </head>
 <body>
-  <h1>Live FSR Sensor Data</h1>
-  <canvas id="chart"></canvas>
-  <button onclick="resetChart()">Reset Data</button>
 
-  <script>
-    const ctx = document.getElementById('chart').getContext('2d');
-    const chart = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: [],
-        datasets: [{
-          label: 'FSR Value',
-          data: [],
-          borderColor: 'blue',
-          borderWidth: 2,
-          fill: false,
-          tension: 0.25
-        }]
-      },
-      options: {
-        animation: false,
-        responsive: true,
-        scales: {
-          x: { title: { display: true, text: 'Time (s)' } },
-          y: { title: { display: true, text: 'FSR Value' }, beginAtZero: true }
-        }
-      }
-    });
+<h1>Posture Pressure Monitor</h1>
+<div id="status">Waiting for data...</div>
 
-    async function updateData() {
-      const res = await fetch('/data');
-      const data = await res.json();
-      chart.data.labels = data.map(d => d.time);
-      chart.data.datasets[0].data = data.map(d => d.value);
-      chart.update();
-    }
+<div class="bar-container">
+  <div class="bar" id="bar-lower"></div>
+  <div class="label">Lower Back</div>
+</div>
+<div class="bar-container">
+  <div class="bar" id="bar-mid"></div>
+  <div class="label">Mid Back</div>
+</div>
+<div class="bar-container">
+  <div class="bar" id="bar-upper"></div>
+  <div class="label">Upper Back</div>
+</div>
 
-    async function resetChart() {
-      await fetch('/reset');
-      chart.data.labels = [];
-      chart.data.datasets[0].data = [];
-      chart.update();
-    }
+<script>
+async function updateData() {
+  const res = await fetch('/data');
+  const data = await res.json();
 
-    setInterval(updateData, 300); // update every 0.3 seconds
-  </script>
+  const statusEl = document.getElementById('status');
+  if (!data.sitting) {
+    statusEl.textContent = "🪑 User not sitting";
+    document.querySelectorAll('.bar').forEach(b => b.style.width = '0%');
+  } else if (data.baseline.lower === null) {
+    statusEl.textContent = "⌛ Collecting baseline... " + data.time.toFixed(1) + "s";
+  } else {
+    statusEl.textContent = "✅ Sitting — Live Pressure Feedback";
+    document.getElementById('bar-lower').style.width = data.fill.lower + '%';
+    document.getElementById('bar-mid').style.width = data.fill.mid + '%';
+    document.getElementById('bar-upper').style.width = data.fill.upper + '%';
+  }
+}
+
+setInterval(updateData, 300);
+</script>
 </body>
 </html>
