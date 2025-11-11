@@ -1,5 +1,6 @@
 // ----------------------------------------------------
 // 4-FSR Posture Tracker (Seat + 3 Back Sensors)
+// Clean version for Flask serial reading
 // ----------------------------------------------------
 
 const int fsrPins[4] = {A0, A1, A2, A3};
@@ -8,7 +9,7 @@ int fsrValues[4];
 void setup() {
   Serial.begin(9600);
   for (int i = 0; i < 4; i++) pinMode(fsrPins[i], INPUT);
-  Serial.println("Posture Tracker Ready...");
+  delay(1000); // Give Serial time to start
 }
 
 void loop() {
@@ -17,7 +18,7 @@ void loop() {
     fsrValues[i] = analogRead(fsrPins[i]);
   }
 
-  // Send all 4 as comma-separated string
+  // Send all 4 as comma-separated numbers
   Serial.print(fsrValues[0]);
   Serial.print(",");
   Serial.print(fsrValues[1]);
@@ -28,4 +29,3 @@ void loop() {
 
   delay(200);
 }
-
