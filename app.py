@@ -8,9 +8,11 @@ except ImportError:
 
 app = Flask(__name__)
 
+# ---- Serial setup ----
 port = 'COM4'
 baud = 9600
 ser = None
+
 sensor_data = {
     "seat": 0,
     "lower": 0,
@@ -18,28 +20,33 @@ sensor_data = {
     "upper": 0,
     "time": 0,
     "baseline": {"lower": None, "mid": None, "upper": None},
-    "fill": {"lower": 0, "mid": 0, "upper": 0},
+    "deviation": {"lower": 0, "mid": 0, "upper": 0},
     "sitting": False
 }
 
-if serial and os.environ.get("RENDER") != "true":
+if serial:
     try:
         ser = serial.Serial(port, baud, timeout=1)
         time.sleep(2)
         print(f"✅ Connected to {port}")
     except Exception as e:
         print(f"⚠️ Could not open serial port {port}: {e}")
+else:
+    print("⚠️ pyserial not available — running in simulation mode.")
 
-# ---- Variables for baseline tracking ----
+# ---- Baseline tracking ----
 start_time = time.time()
-baseline_window = [3, 13]
+baseline_window = (3, 13)
 baseline_values = {"lower": [], "mid": [], "upper": []}
 baseline_done = False
 
+
 def read_serial():
+    """Continuously read comma-separated sensor data from Arduino"""
     global sensor_data, baseline_done
+
     if not ser:
-        print("⚠️ Serial not available.")
+        print("⚠️ Serial not available. Skipping read loop.")
         return
 
     while True:
@@ -47,47 +54,54 @@ def read_serial():
             if ser.in_waiting > 0:
                 line = ser.readline().decode(errors="ignore").strip()
                 parts = line.split(",")
-                if len(parts) == 4 and all(p.isdigit() for p in parts):
+                if len(parts) == 4 and all(p.strip().isdigit() for p in parts):
                     seat, lower, mid, upper = map(int, parts)
                     elapsed = time.time() - start_time
-                    sensor_data["seat"] = seat
-                    sensor_data["lower"] = lower
-                    sensor_data["mid"] = mid
-                    sensor_data["upper"] = upper
-                    sensor_data["time"] = round(elapsed, 2)
 
-                    # Detect if sitting
-                    sensor_data["sitting"] = seat > 50  # adjust threshold
+                    sensor_data.update({
+                        "seat": seat,
+                        "lower": lower,
+                        "mid": mid,
+                        "upper": upper,
+                        "time": round(elapsed, 2),
+                        "sitting": seat > 50  # adjust threshold
+                    })
 
-                    # Record baseline during [3, 13] seconds
+                    # Record baseline if sitting during calibration window
                     if 3 <= elapsed <= 13 and sensor_data["sitting"]:
-                        baseline_values["lower"].append(lower)
-                        baseline_values["mid"].append(mid)
-                        baseline_values["upper"].append(upper)
+                        for k, v in zip(["lower", "mid", "upper"], [lower, mid, upper]):
+                            baseline_values[k].append(v)
 
-                    # Compute baseline averages once
-                    if elapsed > 13 and not baseline_done and len(baseline_values["lower"]) > 0:
-                        sensor_data["baseline"]["lower"] = sum(baseline_values["lower"]) / len(baseline_values["lower"])
-                        sensor_data["baseline"]["mid"] = sum(baseline_values["mid"]) / len(baseline_values["mid"])
-                        sensor_data["baseline"]["upper"] = sum(baseline_values["upper"]) / len(baseline_values["upper"])
+                    # Compute baseline once
+                    if elapsed > 13 and not baseline_done and baseline_values["lower"]:
+                        for k in ["lower", "mid", "upper"]:
+                            sensor_data["baseline"][k] = sum(baseline_values[k]) / len(baseline_values[k])
                         baseline_done = True
                         print("✅ Baselines computed:", sensor_data["baseline"])
 
-                    # Compute fill ratios
+                    # Compute deviation from baseline (-100 to +100)
                     if baseline_done:
-                        for key in ["lower", "mid", "upper"]:
-                            base = sensor_data["baseline"][key]
-                            val = sensor_data[key]
-                            ratio = min(val / base, 1.0) if base else 0
-                            sensor_data["fill"][key] = round(ratio * 100, 1)
+                        for k in ["lower", "mid", "upper"]:
+                            base = sensor_data["baseline"][k]
+                            val = sensor_data[k]
+                            if base:
+                                deviation = ((val - base) / base) * 100  # percent difference
+                                deviation = max(min(deviation, 100), -100)  # clamp to [-100, 100]
+                                sensor_data["deviation"][k] = round(deviation, 1)
+
         except Exception as e:
             print("Serial read error:", e)
+            time.sleep(1)
         time.sleep(0.1)
 
-if ser:
-    t = threading.Thread(target=read_serial, daemon=True)
-    t.start()
 
+# ---- Background thread ----
+if ser:
+    thread = threading.Thread(target=read_serial, daemon=True)
+    thread.start()
+
+
+# ---- Flask routes ----
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -96,5 +110,6 @@ def index():
 def data():
     return jsonify(sensor_data)
 
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    app.run(host="0.0.0.0", port=5000, debug=False)
