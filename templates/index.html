@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Posture Pressure Visualization</title>
+<title>Posture Pressure Balance</title>
 <style>
   body {
     font-family: Arial, sans-serif;
@@ -11,53 +11,58 @@
     background: #f3f4f7;
     padding: 40px;
   }
-  h1 { margin-bottom: 10px; }
+  h1 {
+    margin-bottom: 15px;
+  }
   #status {
     font-size: 1.2em;
     margin-bottom: 20px;
     font-weight: bold;
   }
   .bar-container {
-    width: 80%;
-    height: 40px;
-    background: #ddd;
-    border-radius: 10px;
-    margin: 15px auto;
     position: relative;
-    overflow: hidden;
+    width: 80%;
+    height: 20px;
+    background: linear-gradient(to right, #ff7675, #ddd, #74b9ff);
+    border-radius: 10px;
+    margin: 25px auto;
   }
-  .bar {
-    height: 100%;
-    background: #007bff;
-    width: 0%;
-    transition: width 0.3s;
+  .indicator {
+    position: absolute;
+    top: -6px;
+    width: 12px;
+    height: 32px;
+    background: #2d3436;
+    border-radius: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+    transition: left 0.2s ease;
   }
   .label {
-    position: absolute;
-    width: 100%;
-    top: 8px;
+    margin-top: 5px;
     font-weight: bold;
-    color: #333;
   }
 </style>
 </head>
 <body>
 
-<h1>Posture Pressure Monitor</h1>
+<h1>Posture Pressure Balance</h1>
 <div id="status">Waiting for data...</div>
 
 <div class="bar-container">
-  <div class="bar" id="bar-lower"></div>
-  <div class="label">Lower Back</div>
+  <div class="indicator" id="indicator-lower"></div>
 </div>
+<div class="label">Lower Back</div>
+
 <div class="bar-container">
-  <div class="bar" id="bar-mid"></div>
-  <div class="label">Mid Back</div>
+  <div class="indicator" id="indicator-mid"></div>
 </div>
+<div class="label">Mid Back</div>
+
 <div class="bar-container">
-  <div class="bar" id="bar-upper"></div>
-  <div class="label">Upper Back</div>
+  <div class="indicator" id="indicator-upper"></div>
 </div>
+<div class="label">Upper Back</div>
 
 <script>
 async function updateData() {
@@ -65,16 +70,21 @@ async function updateData() {
   const data = await res.json();
 
   const statusEl = document.getElementById('status');
+
   if (!data.sitting) {
     statusEl.textContent = "🪑 User not sitting";
-    document.querySelectorAll('.bar').forEach(b => b.style.width = '0%');
   } else if (data.baseline.lower === null) {
-    statusEl.textContent = "⌛ Collecting baseline... " + data.time.toFixed(1) + "s";
+    statusEl.textContent = `⌛ Calibrating... ${data.time.toFixed(1)}s`;
   } else {
-    statusEl.textContent = "✅ Sitting — Live Pressure Feedback";
-    document.getElementById('bar-lower').style.width = data.fill.lower + '%';
-    document.getElementById('bar-mid').style.width = data.fill.mid + '%';
-    document.getElementById('bar-upper').style.width = data.fill.upper + '%';
+    statusEl.textContent = "✅ Monitoring balance";
+
+    // Move indicators: deviation -100 (left), +100 (right)
+    ["lower", "mid", "upper"].forEach(id => {
+      const val = data.deviation[id];
+      const el = document.getElementById(`indicator-${id}`);
+      const position = 50 + val / 2; // map [-100,100] → [0,100]
+      el.style.left = `${position}%`;
+    });
   }
 }
 
