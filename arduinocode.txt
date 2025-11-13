@@ -1,6 +1,6 @@
 // ----------------------------------------------------
 // 4-FSR Posture Tracker (Seat + 3 Back Sensors)
-// Clean version for Flask serial reading
+// Threshold-filtered version for stable readings
 // ----------------------------------------------------
 
 const int fsrPins[4] = {A0, A1, A2, A3};
@@ -16,6 +16,15 @@ void loop() {
   // Read all sensors
   for (int i = 0; i < 4; i++) {
     fsrValues[i] = analogRead(fsrPins[i]);
+
+    // Apply threshold filtering
+    if (i == 0) {
+      // Seat sensor (A0)
+      if (fsrValues[i] < 500) fsrValues[i] = 0;
+    } else {
+      // Back sensors (A1–A3)
+      if (fsrValues[i] < 250) fsrValues[i] = 0;
+    }
   }
 
   // Send all 4 as comma-separated numbers
