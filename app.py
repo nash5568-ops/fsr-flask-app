@@ -1,5 +1,5 @@
 from flask import Flask, render_template, jsonify
-import time, threading, os
+import time, threading
 
 try:
     import serial
@@ -8,11 +8,9 @@ except ImportError:
 
 app = Flask(__name__)
 
-# ---- Serial setup ----
-port = 'COM4'
-baud = 9600
-ser = None
-
+# ---------------------------------------------------------
+# Global state
+# ---------------------------------------------------------
 sensor_data = {
     "seat": 0,
     "lower": 0,
@@ -21,94 +19,137 @@ sensor_data = {
     "time": 0,
     "baseline": {"lower": None, "mid": None, "upper": None},
     "deviation": {"lower": 0, "mid": 0, "upper": 0},
-    "sitting": False
+    "sitting": False,
+    "connected": False
 }
+
+# calibration control
+baseline_values = {"lower": [], "mid": [], "upper": []}
+baseline_done = False
+calibrate_requested = False
+
+# ---------------------------------------------------------
+# Serial setup
+# ---------------------------------------------------------
+port = "COM4"
+baud = 9600
+ser = None
 
 if serial:
     try:
         ser = serial.Serial(port, baud, timeout=1)
         time.sleep(2)
-        print(f"✅ Connected to {port}")
+        print(f" Connected to {port}")
+        sensor_data["connected"] = True
     except Exception as e:
         print(f"⚠️ Could not open serial port {port}: {e}")
+        sensor_data["connected"] = False
 else:
-    print("⚠️ pyserial not available — running in simulation mode.")
+    print("⚠️ pyserial not available — simulation mode.")
+    sensor_data["connected"] = False
 
-# ---- Baseline tracking ----
-start_time = time.time()
-baseline_window = (3, 13)
-baseline_values = {"lower": [], "mid": [], "upper": []}
-baseline_done = False
-
-
+# ---------------------------------------------------------
+# Serial reader thread
+# ---------------------------------------------------------
 def read_serial():
-    """Continuously read comma-separated sensor data from Arduino"""
-    global sensor_data, baseline_done
+    global baseline_done, baseline_values, calibrate_requested
 
     if not ser:
-        print("⚠️ Serial not available. Skipping read loop.")
+        print(" Serial not available. No reading.")
         return
 
     while True:
         try:
+            # read a single line
             if ser.in_waiting > 0:
                 line = ser.readline().decode(errors="ignore").strip()
                 parts = line.split(",")
-                if len(parts) == 4 and all(p.strip().isdigit() for p in parts):
-                    seat, lower, mid, upper = map(int, parts)
-                    elapsed = time.time() - start_time
 
+                if len(parts) == 4 and all(p.strip().lstrip('-').isdigit() for p in parts):
+                    seat, lower, mid, upper = map(int, parts)
+                    # update readings
                     sensor_data.update({
                         "seat": seat,
                         "lower": lower,
                         "mid": mid,
                         "upper": upper,
-                        "time": round(elapsed, 2),
-                        "sitting": seat > 50  # adjust threshold
+                        "time": round(time.time(), 2),
+                        "sitting": seat > 50
                     })
 
-                    # Record baseline if sitting during calibration window
-                    if 3 <= elapsed <= 13 and sensor_data["sitting"]:
-                        for k, v in zip(["lower", "mid", "upper"], [lower, mid, upper]):
-                            baseline_values[k].append(v)
-
-                    # Compute baseline once
-                    if elapsed > 13 and not baseline_done and baseline_values["lower"]:
-                        for k in ["lower", "mid", "upper"]:
-                            sensor_data["baseline"][k] = sum(baseline_values[k]) / len(baseline_values[k])
+                    # If a manual calibrate was requested, collect a burst of samples
+                    if calibrate_requested:
+                        # collect N valid samples into baseline_values
+                        N = 50
+                        # reset temporary lists
+                        baseline_values = {"lower": [], "mid": [], "upper": []}
+                        collected = 0
+                        print("🔁 Calibration requested — collecting samples...")
+                        while collected < N:
+                            # try to read next valid line
+                            if ser.in_waiting > 0:
+                                ln = ser.readline().decode(errors="ignore").strip()
+                                vals = ln.split(",")
+                                if len(vals) == 4 and all(v.strip().lstrip('-').isdigit() for v in vals):
+                                    _, l, m, u = map(int, vals)
+                                    baseline_values["lower"].append(l)
+                                    baseline_values["mid"].append(m)
+                                    baseline_values["upper"].append(u)
+                                    collected += 1
+                            else:
+                                time.sleep(0.05)
+                        # compute baseline averages
+                        for key in ["lower", "mid", "upper"]:
+                            sensor_data["baseline"][key] = sum(baseline_values[key]) / len(baseline_values[key])
                         baseline_done = True
-                        print("✅ Baselines computed:", sensor_data["baseline"])
+                        calibrate_requested = False
+                        print("✅ Manual calibration complete:", sensor_data["baseline"])
 
-                    # Compute deviation from baseline (-100 to +100)
+                    # If baseline already done, compute deviation
                     if baseline_done:
-                        for k in ["lower", "mid", "upper"]:
-                            base = sensor_data["baseline"][k]
-                            val = sensor_data[k]
-                            if base:
-                                deviation = ((val - base) / base) * 100  # percent difference
-                                deviation = max(min(deviation, 100), -100)  # clamp to [-100, 100]
-                                sensor_data["deviation"][k] = round(deviation, 1)
+                        for key in ["lower", "mid", "upper"]:
+                            base = sensor_data["baseline"][key]
+                            val = sensor_data[key]
+                            if base and base != 0:
+                                deviation = ((val - base) / base) * 100
+                                deviation = max(min(deviation, 100), -100)
+                                sensor_data["deviation"][key] = round(deviation, 1)
+                            else:
+                                sensor_data["deviation"][key] = 0
 
         except Exception as e:
             print("Serial read error:", e)
-            time.sleep(1)
-        time.sleep(0.1)
+            sensor_data["connected"] = False
+            time.sleep(0.5)
 
+        time.sleep(0.02)  # small pause to avoid busy loop
 
-# ---- Background thread ----
+# start thread
 if ser:
     thread = threading.Thread(target=read_serial, daemon=True)
     thread.start()
 
-
-# ---- Flask routes ----
-@app.route('/')
+# ---------------------------------------------------------
+# Routes
+# ---------------------------------------------------------
+@app.route("/")
 def index():
-    return render_template('index.html')
+    return render_template("index.html")
 
-@app.route('/data')
+
+@app.route("/data")
 def data():
     return jsonify(sensor_data)
+
+
+@app.route("/reset_calibration")
+def reset_calibration():
+    global calibrate_requested, baseline_done, baseline_values
+    calibrate_requested = True
+    baseline_done = False
+    baseline_values = {"lower": [], "mid": [], "upper": []}
+    print("🔄 Calibration endpoint called — will recalibrate on next sample burst.")
+    return jsonify({"status": "calibration started"})
 
 
 if __name__ == "__main__":
