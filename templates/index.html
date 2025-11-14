@@ -1,94 +1,148 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Posture Pressure Balance</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Posture Tracker</title>
 <style>
-  body {
-    font-family: Arial, sans-serif;
-    text-align: center;
-    background: #f3f4f7;
-    padding: 40px;
-  }
-  h1 {
-    margin-bottom: 15px;
-  }
-  #status {
-    font-size: 1.2em;
-    margin-bottom: 20px;
-    font-weight: bold;
-  }
-  .bar-container {
-    position: relative;
-    width: 80%;
-    height: 20px;
-    background: linear-gradient(to right, #ff7675, #ddd, #74b9ff);
-    border-radius: 10px;
-    margin: 25px auto;
-  }
-  .indicator {
-    position: absolute;
-    top: -6px;
-    width: 12px;
-    height: 32px;
-    background: #2d3436;
-    border-radius: 4px;
-    left: 50%;
-    transform: translateX(-50%);
-    transition: left 0.2s ease;
-  }
-  .label {
-    margin-top: 5px;
-    font-weight: bold;
-  }
+  #branding {
+  position: absolute;
+  top: 15px;
+  left: 15px;
+  text-align: left;
+}
+
+#branding h1 {
+  margin: 0;
+  font-size: 68px;   /* bigger SmartSit */
+  color: #00e676;
+}
+
+#branding h3 {
+  margin: 0;
+  margin-top: 6px;
+  font-size: 48px;   /* bigger BoulderStatics */
+  color: #d4b321;
+}
+
+  body { background: black; color: white; font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+  h1 { color: #00e676; }
+  h2 { color: #d4b321;}
+  #status { margin-bottom: 12px; color: #ccc; }
+  .sensor-container { display: flex; flex-direction: column; gap: 18px; align-items: center; }
+  .sensor { width: 90%; max-width: 700px; }
+  .bar { position: relative; height: 34px; border-radius: 10px; margin: 6px 0; 
+        background: linear-gradient(to right,#ff3b3b 0%,#ff903b 25%,#ffe066 40%,#2bff63 50%,#ffe066 60%,#ff903b 75%,#ff3b3b 100%); overflow: hidden; }
+  .indicator { position: absolute; width: 18px; height: 42px; background: white; border-radius: 6px; top: -4px; transform: translateX(-50%); transition: left 0.12s linear; left:50%; }
+  .label { margin-top: 6px; color: #ddd; font-weight: bold; }
+  #timer { margin-top: 18px; font-size: 1.3rem; color: #00e7ff; }
+  #alert { margin-top: 8px; font-size: 1.1rem; color: #ff5252; font-weight: bold; }
+  button { margin: 8px; padding: 10px 18px; background: #222; color: white; border: 2px solid #555; border-radius: 8px; cursor: pointer; }
+  button:hover { background:#333; }
 </style>
 </head>
 <body>
+  <div id="branding">
+    <h1>SmartSit</h1>
+    <h2>BoulderStatics</h2>
+  </div>
 
-<h1>Posture Pressure Balance</h1>
-<div id="status">Waiting for data...</div>
+  <img <img src="/static/poster1.png" alt="Poster" style="width:500px; margin:15px auto; display:block;">
 
-<div class="bar-container">
-  <div class="indicator" id="indicator-lower"></div>
-</div>
-<div class="label">Lower Back</div>
 
-<div class="bar-container">
-  <div class="indicator" id="indicator-mid"></div>
-</div>
-<div class="label">Mid Back</div>
+  <div id="status">Waiting for data...</div>
 
-<div class="bar-container">
-  <div class="indicator" id="indicator-upper"></div>
-</div>
-<div class="label">Upper Back</div>
+  <div class="sensor-container">
+    <div class="sensor"><div class="label">Upper Back</div><div class="bar"><div id="indicator-upper" class="indicator"></div></div></div>
+    <div class="sensor"><div class="label">Middle Back</div><div class="bar"><div id="indicator-mid" class="indicator"></div></div></div>
+    <div class="sensor"><div class="label">Lower Back</div><div class="bar"><div id="indicator-lower" class="indicator"></div></div></div>
+  </div>
+
+  <div id="timer">Sitting Time: 0s</div>
+  <div id="alert"></div>
+
+  <div>
+    <button id="resetTimerBtn">Reset Timer</button>
+    <button id="resetCalBtn">Reset Calibration</button>
+  </div>
 
 <script>
-async function updateData() {
-  const res = await fetch('/data');
-  const data = await res.json();
+let sitTimer = 0;
+let sitActive = false;
+const SIT_LIMIT = 40; // seconds
 
-  const statusEl = document.getElementById('status');
+document.getElementById('resetTimerBtn').addEventListener('click', () => {
+  sitTimer = 0;
+  document.getElementById('timer').textContent = `Sitting Time: 0s`;
+  document.getElementById('alert').textContent = '';
+});
 
-  if (!data.sitting) {
-    statusEl.textContent = "🪑 User not sitting";
-  } else if (data.baseline.lower === null) {
-    statusEl.textContent = `⌛ Calibrating... ${data.time.toFixed(1)}s`;
-  } else {
-    statusEl.textContent = "✅ Monitoring balance";
+document.getElementById('resetCalBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('resetCalBtn');
+  btn.disabled = true;
+  btn.textContent = 'Calibrating...';
+  await fetch('/reset_calibration');
+  // re-enable after a short delay — server will perform calibration
+  setTimeout(() => { btn.disabled = false; btn.textContent = 'Reset Calibration'; }, 3500);
+});
 
-    // Move indicators: deviation -100 (left), +100 (right)
-    ["lower", "mid", "upper"].forEach(id => {
-      const val = data.deviation[id];
-      const el = document.getElementById(`indicator-${id}`);
-      const position = 50 + val / 2; // map [-100,100] → [0,100]
-      el.style.left = `${position}%`;
-    });
+async function fetchData() {
+  try {
+    const res = await fetch('/data', {cache: "no-store"});
+    if (!res.ok) throw new Error('bad /data');
+    return await res.json();
+  } catch (e) {
+    console.error(e);
+    return null;
   }
 }
 
-setInterval(updateData, 300);
+function setIndicator(el, deviation) {
+  const clamped = Math.max(-100, Math.min(100, (deviation||0)));
+  const pos = 50 + clamped / 2;
+  el.style.left = pos + '%';
+}
+
+async function loop() {
+  const data = await fetchData();
+  const statusEl = document.getElementById('status');
+  if (!data) {
+    statusEl.textContent = 'No data (server offline or serial not available)';
+    requestAnimationFrame(loop);
+    return;
+  }
+
+  statusEl.textContent = data.connected ? 'Connected' : 'No serial connection';
+
+  // Update indicators (note order: upper, mid, lower)
+  setIndicator(document.getElementById('indicator-upper'), data.deviation.upper);
+  setIndicator(document.getElementById('indicator-mid'), data.deviation.mid);
+  setIndicator(document.getElementById('indicator-lower'), data.deviation.lower);
+
+  // Timer logic: starts when sitting detected and baseline exists
+  if (data.sitting && data.baseline.lower !== null) {
+    sitActive = true;
+  } else {
+    sitActive = false;
+    sitTimer = 0;
+    document.getElementById('alert').textContent = '';
+  }
+
+  if (sitActive) {
+    sitTimer++;
+    document.getElementById('timer').textContent = `Sitting Time: ${sitTimer}s`;
+    if (sitTimer >= SIT_LIMIT) {
+      document.getElementById('alert').textContent = "Please get up, time a break!";
+    }
+  } else {
+    document.getElementById('timer').textContent = `Sitting Time: ${sitTimer}s`;
+  }
+
+  // poll every 1s
+  setTimeout(loop, 1000);
+}
+
+loop();
 </script>
 </body>
 </html>
